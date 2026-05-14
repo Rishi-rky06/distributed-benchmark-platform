@@ -80,9 +80,8 @@ func (f *Fleet) Samples() <-chan LatencySample {
 func (f *Fleet) Start(ctx context.Context) error {
 	ctx, f.cancel = context.WithCancel(ctx)
 
-	// Create protocol adapter
-	adapter, err := NewAdapter(f.cfg.Protocol)
-	if err != nil {
+	// Validate protocol before spawning workers
+	if _, err := NewAdapter(f.cfg.Protocol); err != nil {
 		return fmt.Errorf("protocol adapter: %w", err)
 	}
 
@@ -96,14 +95,14 @@ func (f *Fleet) Start(ctx context.Context) error {
 
 	// Spawn minimum workers immediately
 	for i := 0; i < f.cfg.MinWorkers; i++ {
-		f.spawnWorker(ctx, i, adapter)
+		f.spawnWorker(ctx, i)
 	}
 
 	// Ramp up remaining workers over RampDuration
 	remaining := f.cfg.MaxWorkers - f.cfg.MinWorkers
 	if remaining > 0 && f.cfg.RampDuration > 0 {
 		interval := f.cfg.RampDuration / time.Duration(remaining)
-		go f.rampUp(ctx, f.cfg.MinWorkers, remaining, interval, adapter)
+		go f.rampUp(ctx, f.cfg.MinWorkers, remaining, interval)
 	}
 
 	return nil
@@ -139,7 +138,7 @@ func (f *Fleet) CurrentStats() FleetStats {
 	}
 }
 
-func (f *Fleet) rampUp(ctx context.Context, startIdx, count int, interval time.Duration, adapter ProtocolAdapter) {
+func (f *Fleet) rampUp(ctx context.Context, startIdx, count int, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -149,14 +148,22 @@ func (f *Fleet) rampUp(ctx context.Context, startIdx, count int, interval time.D
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			f.spawnWorker(ctx, startIdx+spawned, adapter)
+			f.spawnWorker(ctx, startIdx+spawned)
 			spawned++
 		}
 	}
 	f.log.Infow("ramp-up complete", "total_workers", f.cfg.MaxWorkers)
 }
 
-func (f *Fleet) spawnWorker(ctx context.Context, id int, adapter ProtocolAdapter) {
+// spawnWorker creates a new bot worker with its own protocol adapter.
+// Each worker gets a dedicated adapter to avoid connection sharing/contention.
+func (f *Fleet) spawnWorker(ctx context.Context, id int) {
+	adapter, err := NewAdapter(f.cfg.Protocol)
+	if err != nil {
+		f.log.Warnw("failed to create adapter for worker", "worker_id", id, "err", err)
+		return
+	}
+
 	w := &Worker{
 		id:       id,
 		fleet:    f,
@@ -177,3 +184,4 @@ func (f *Fleet) spawnWorker(ctx context.Context, id int, adapter ProtocolAdapter
 		w.Run(ctx)
 	}()
 }
+

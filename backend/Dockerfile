@@ -40,8 +40,7 @@ WORKDIR /app
 COPY --from=builder /build/server /app/server
 COPY --from=builder /build/migrations /app/migrations
 
-# Copy frontend static files
-COPY --from=builder /build/../frontend /app/frontend 2>/dev/null || true
+# Note: Frontend static files are served by the nginx container, not the backend
 
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]
