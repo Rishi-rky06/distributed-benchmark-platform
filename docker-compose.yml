@@ -1,0 +1,124 @@
+version: "3.9"
+
+# ─── Named volumes ──────────────────────────────────────────────────────────────
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+  go-mod-cache:
+    driver: local
+
+# ─── Shared network ─────────────────────────────────────────────────────────────
+networks:
+  bench-net:
+    driver: bridge
+
+# ─────────────────────────────────────────────────────────────────────────────────
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: bench-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Mount init scripts — runs once on first container creation
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: bench-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --maxmemory ${REDIS_MAXMEMORY:-256mb}
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend (Go / Gin) ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development          # Switch to "production" for release builds
+    container_name: bench-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Overrides — service hostnames resolve via Docker DNS
+      POSTGRES_HOST: postgres
+      REDIS_HOST:    redis
+    volumes:
+      # Hot-reload: mount source in dev mode (Air / reflex watches this)
+      - ./backend:/app
+      # Persist Go module cache across rebuilds
+      - go-mod-cache:/go/pkg/mod
+      # Contestant submission staging area (bind mount for easy inspection)
+      - ./submissions:/app/submissions
+      # Docker socket mount for sandbox container management
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    networks:
+      - bench-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── Frontend (React / Vite) ───────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: bench-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL:  ${VITE_API_BASE_URL:-http://localhost:8080}
+      VITE_WS_BASE_URL:   ${VITE_WS_BASE_URL:-ws://localhost:8080}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules           # Anonymous volume — keeps container node_modules isolated
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    networks:
+      - bench-net
+    depends_on:
+      - backend

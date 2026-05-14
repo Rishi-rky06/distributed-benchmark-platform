@@ -1,0 +1,52 @@
+# ─── Go ────────────────────────────────────────────────────────────────────────
+backend/bin/
+backend/*.exe
+backend/*.test
+backend/vendor/
+backend/coverage.out
+backend/coverage.html
+
+# Go build cache (keep go.sum)
+*.o
+*.a
+
+# ─── Node / Frontend ────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/.eslintcache
+
+# ─── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ─── Docker ────────────────────────────────────────────────────────────────────
+# Keep Dockerfiles and compose; ignore generated artefacts
+*.tar
+*.image
+
+# ─── Database ──────────────────────────────────────────────────────────────────
+*.sql.bak
+pgdata/
+redisdata/
+
+# ─── Contestant Submissions (runtime artefacts) ─────────────────────────────────
+submissions/
+sandbox-tmp/
+bot-logs/
+
+# ─── OS & Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ─── Test Artefacts ────────────────────────────────────────────────────────────
+*.log
+tmp/

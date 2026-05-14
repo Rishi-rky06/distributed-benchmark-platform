@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IICPC Benchmark Platform</title>
+  <meta name="description" content="Distributed Benchmarking Platform for evaluating trading infrastructure" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ── Navigation ─────────────────────────────────────────────── -->
+  <nav id="navbar">
+    <div class="nav-brand">IICPC Benchmark</div>
+    <div class="nav-links">
+      <a href="#" class="nav-link active" data-page="dashboard">Dashboard</a>
+      <a href="#" class="nav-link" data-page="submit">Submit</a>
+      <a href="#" class="nav-link" data-page="leaderboard">Leaderboard</a>
+    </div>
+    <div class="nav-status" id="health-status">⏳ Checking...</div>
+  </nav>
+
+  <!-- ── Pages ──────────────────────────────────────────────────── -->
+  <main id="app">
+
+    <!-- Dashboard Page -->
+    <section id="page-dashboard" class="page active">
+      <h1>Dashboard</h1>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Submissions</div>
+          <div class="stat-value" id="stat-submissions">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Runs</div>
+          <div class="stat-value" id="stat-active-runs">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Completed Runs</div>
+          <div class="stat-value" id="stat-completed">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Queue Depth</div>
+          <div class="stat-value" id="stat-queue">—</div>
+        </div>
+      </div>
+
+      <h2>Recent Submissions</h2>
+      <table id="recent-submissions-table">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Language</th>
+            <th>Status</th>
+            <th>Uploaded</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="recent-submissions-body">
+          <tr><td colspan="5" class="empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Submit Page -->
+    <section id="page-submit" class="page">
+      <h1>Upload Trading Engine</h1>
+      <form id="submission-form">
+        <div class="form-group">
+          <label for="team_name">Team Name</label>
+          <input type="text" id="team_name" name="team_name" required
+                 minlength="2" maxlength="64" placeholder="e.g. AlphaTraders" />
+        </div>
+        <div class="form-group">
+          <label for="language">Language</label>
+          <select id="language" name="language" required>
+            <option value="">Select language...</option>
+            <option value="go">Go</option>
+            <option value="cpp">C++</option>
+            <option value="rust">Rust</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="file">Source File</label>
+          <input type="file" id="file" name="file" required />
+          <small>Accepted: .go, .cpp, .cc, .rs, .tar.gz, .zip — max 256 MB</small>
+        </div>
+        <button type="submit" id="submit-btn">Upload Submission</button>
+      </form>
+      <div id="submit-result" class="result-box" style="display:none;"></div>
+    </section>
+
+    <!-- Leaderboard Page -->
+    <section id="page-leaderboard" class="page">
+      <h1>Leaderboard</h1>
+      <div id="leaderboard-updated" class="subtitle">Last updated: —</div>
+      <table id="leaderboard-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Team</th>
+            <th>Language</th>
+            <th>Peak TPS</th>
+            <th>p99 Latency</th>
+            <th>Correctness</th>
+            <th>Uptime</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-body">
+          <tr><td colspan="8" class="empty">Loading...</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Run Details</h2>
+      <div id="metrics-panel">
+        <p class="subtitle">Select a leaderboard row to view metrics for that run.</p>
+        <table id="metrics-table" style="display:none;">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>TPS</th>
+              <th>p50</th>
+              <th>p90</th>
+              <th>p99</th>
+              <th>Sent</th>
+              <th>Acked</th>
+              <th>Errors</th>
+            </tr>
+          </thead>
+          <tbody id="metrics-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

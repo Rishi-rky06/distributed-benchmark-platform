@@ -1,0 +1,2 @@
+# No external dependencies — pure stdlib
+# This file exists for Docker/pip compatibility
