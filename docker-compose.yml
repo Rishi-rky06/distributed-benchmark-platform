@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ─── Named volumes ──────────────────────────────────────────────────────────────
 volumes:
   pgdata:
@@ -28,8 +26,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Mount init scripts — runs once on first container creation
-      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     networks:
@@ -85,7 +81,8 @@ services:
       # Contestant submission staging area (bind mount for easy inspection)
       - ./submissions:/app/submissions
       # Docker socket mount for sandbox container management
-      - /var/run/docker.sock:/var/run/docker.sock
+      # On Windows with Docker Desktop set DOCKER_SOCK=//./pipe/docker_engine in .env
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     networks:
@@ -102,20 +99,15 @@ services:
       retries: 3
       start_period: 20s
 
-  # ── Frontend (React / Vite) ───────────────────────────────────────────────────
+  # ── Frontend (Nginx / Static HTML) ───────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: development
     container_name: bench-frontend
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL:  ${VITE_API_BASE_URL:-http://localhost:8080}
-      VITE_WS_BASE_URL:   ${VITE_WS_BASE_URL:-ws://localhost:8080}
     volumes:
-      - ./frontend:/app
-      - /app/node_modules           # Anonymous volume — keeps container node_modules isolated
+      - ./frontend:/usr/share/nginx/html
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     networks:

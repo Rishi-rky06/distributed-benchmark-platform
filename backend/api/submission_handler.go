@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,15 +16,17 @@ import (
 
 	"github.com/Rishi-rky06/distributed-benchmark-platform/config"
 	"github.com/Rishi-rky06/distributed-benchmark-platform/models"
+	"github.com/Rishi-rky06/distributed-benchmark-platform/services"
 	"github.com/Rishi-rky06/distributed-benchmark-platform/utils"
 )
 
 // SubmissionHandler handles all /api/v1/submissions routes.
 type SubmissionHandler struct {
-	cfg *config.Config
-	log *utils.Logger
-	db  *config.DB
-	rdb *config.RedisClient
+	cfg   *config.Config
+	log   *utils.Logger
+	db    *config.DB
+	rdb   *config.RedisClient
+	queue *services.QueueService
 }
 
 func NewSubmissionHandler(
@@ -33,8 +34,9 @@ func NewSubmissionHandler(
 	log *utils.Logger,
 	db *config.DB,
 	rdb *config.RedisClient,
+	queue *services.QueueService,
 ) *SubmissionHandler {
-	return &SubmissionHandler{cfg: cfg, log: log, db: db, rdb: rdb}
+	return &SubmissionHandler{cfg: cfg, log: log, db: db, rdb: rdb, queue: queue}
 }
 
 // ── POST /api/v1/submissions ─────────────────────────────────────────────────
@@ -347,7 +349,7 @@ func (h *SubmissionHandler) TriggerRun(c *gin.Context) {
 	}
 
 	// Enqueue to Redis for the benchmark worker to pick up
-	if err := h.enqueueBenchmarkRun(ctx, run.ID); err != nil {
+	if err := h.queue.EnqueueRun(ctx, run.ID); err != nil {
 		h.log.Warnw("failed to enqueue run — worker will poll", "err", err, "run_id", run.ID)
 	}
 
@@ -420,15 +422,8 @@ func (h *SubmissionHandler) saveUpload(fh *multipart.FileHeader, destPath string
 	return nil
 }
 
-// enqueueBenchmarkRun pushes the run ID onto the Redis work queue.
-// The benchmark worker listens on this list with BLPOP.
-func (h *SubmissionHandler) enqueueBenchmarkRun(ctx context.Context, runID string) error {
-	const queueKey = "queue:benchmark_runs"
-	return h.rdb.LPush(ctx, queueKey, runID).Err()
-}
-
 // ── compile-time interface assertions ────────────────────────────────────────
 var (
-	_ = time.Now  // suppress unused import if time is only used indirectly
-	_ = uuid.New  // ensure uuid is imported
+	_ = time.Now // suppress unused import if time is only used indirectly
+	_ = uuid.New // ensure uuid is imported
 )

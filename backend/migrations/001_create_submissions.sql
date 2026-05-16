@@ -17,7 +17,7 @@ CREATE TABLE submissions (
     user_id      TEXT        NOT NULL,
     team_name    TEXT        NOT NULL,
     filename     TEXT        NOT NULL,
-    language     TEXT        NOT NULL CHECK (language IN ('go', 'cpp', 'rust')),
+    language     TEXT        NOT NULL CHECK (language IN ('go', 'cpp', 'rust', 'python')),
     status       submission_status NOT NULL DEFAULT 'pending',
     container_id TEXT,
     image_tag    TEXT,

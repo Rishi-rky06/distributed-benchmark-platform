@@ -83,7 +83,7 @@ func main() {
 	log.Info("benchmark worker started")
 
 	// ── 7. Router ─────────────────────────────────────────────────────────────
-	router := api.NewRouter(cfg, log, db, rdb)
+	router := api.NewRouter(cfg, log, db, rdb, queueSvc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.BackendPort,

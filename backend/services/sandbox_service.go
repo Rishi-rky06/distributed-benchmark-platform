@@ -80,13 +80,26 @@ type ContainerInfo struct {
 // BuildImage builds a Docker image for the submission.
 func (s *SandboxService) BuildImage(ctx context.Context, subID, language, subDir string) (string, error) {
 	tag := fmt.Sprintf("bench-sub-%s:latest", subID[:8])
-	content := dockerfileFor(language)
-	if content == "" {
-		return "", fmt.Errorf("unsupported language: %s", language)
+
+	// Extract zip archive if the submission was uploaded as one. This populates
+	// subDir with the actual source files (and the user's own Dockerfile if present).
+	if err := extractSubmissionZip(subDir); err != nil {
+		return "", fmt.Errorf("extract submission: %w", err)
 	}
-	if err := os.WriteFile(subDir+"/Dockerfile", []byte(content), 0644); err != nil {
-		return "", fmt.Errorf("write dockerfile: %w", err)
+
+	// Use the submission's own Dockerfile when provided (e.g. C++ with CMake,
+	// Python with custom deps). Only fall back to a generated one when absent.
+	dockerfilePath := filepath.Join(subDir, "Dockerfile")
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+		content := dockerfileFor(language)
+		if content == "" {
+			return "", fmt.Errorf("unsupported language: %s", language)
+		}
+		if err := os.WriteFile(dockerfilePath, []byte(content), 0644); err != nil {
+			return "", fmt.Errorf("write dockerfile: %w", err)
+		}
 	}
+
 	buildCtx, err := createTarContext(subDir)
 	if err != nil {
 		return "", fmt.Errorf("tar context: %w", err)
@@ -215,9 +228,10 @@ func (s *SandboxService) parseLimits() (int64, int64) {
 
 func dockerfileFor(lang string) string {
 	m := map[string]string{
-		"go": "FROM golang:1.22-alpine AS builder\nWORKDIR /build\nCOPY . .\nRUN go mod init submission 2>/dev/null || true\nRUN CGO_ENABLED=0 GOOS=linux go build -ldflags=\"-s -w\" -o /app/server .\nFROM alpine:3.19\nRUN apk --no-cache add ca-certificates\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
-		"cpp": "FROM gcc:13 AS builder\nWORKDIR /build\nCOPY . .\nRUN g++ -O2 -std=c++20 -o /app/server *.cpp -lpthread\nFROM debian:bookworm-slim\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
+		"go":   "FROM golang:1.22-alpine AS builder\nWORKDIR /build\nCOPY . .\nRUN go mod init submission 2>/dev/null || true\nRUN CGO_ENABLED=0 GOOS=linux go build -ldflags=\"-s -w\" -o /app/server .\nFROM alpine:3.19\nRUN apk --no-cache add ca-certificates\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
+		"cpp":  "FROM gcc:13 AS builder\nWORKDIR /build\nCOPY . .\nRUN g++ -O2 -std=c++20 -o /app/server *.cpp -lpthread\nFROM debian:bookworm-slim\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
 		"rust": "FROM rust:1.77-slim AS builder\nWORKDIR /build\nCOPY . .\nRUN cargo init --name submission 2>/dev/null || true\nRUN cargo build --release\nRUN cp target/release/submission /app/server\nFROM debian:bookworm-slim\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
+		"python": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true\nEXPOSE 8080\nCMD [\"python\", \"src/main.py\"]\n",
 	}
 	return m[strings.ToLower(lang)]
 }

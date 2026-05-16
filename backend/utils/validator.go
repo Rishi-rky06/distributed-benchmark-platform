@@ -11,16 +11,18 @@ import (
 
 // AllowedLanguages is the set of supported submission languages.
 var AllowedLanguages = map[string]bool{
-	"go":   true,
-	"cpp":  true,
-	"rust": true,
+	"go":     true,
+	"cpp":    true,
+	"rust":   true,
+	"python": true,
 }
 
 // AllowedExtensions maps language → accepted file extensions.
 var AllowedExtensions = map[string][]string{
-	"go":   {".go", ".tar.gz", ".zip"},
-	"cpp":  {".cpp", ".cc", ".tar.gz", ".zip"},
-	"rust": {".rs", ".tar.gz", ".zip"},
+	"go":     {".go", ".tar.gz", ".zip"},
+	"cpp":    {".cpp", ".cc", ".tar.gz", ".zip"},
+	"rust":   {".rs", ".tar.gz", ".zip"},
+	"python": {".py", ".tar.gz", ".zip"},
 }
 
 // ValidateSubmissionFile checks that an uploaded file is within size limits
@@ -35,7 +37,7 @@ func ValidateSubmissionFile(fh *multipart.FileHeader, language string, maxMB int
 	// Language check
 	lang := strings.ToLower(language)
 	if !AllowedLanguages[lang] {
-		return fmt.Errorf("unsupported language %q; allowed: go, cpp, rust", language)
+		return fmt.Errorf("unsupported language %q; allowed: go, cpp, rust, python", language)
 	}
 
 	// Extension check
@@ -64,7 +66,7 @@ func Truncate(s string, n int) string {
 func NormalizeLanguage(lang string) (string, error) {
 	l := strings.ToLower(strings.TrimSpace(lang))
 	if !AllowedLanguages[l] {
-		return "", fmt.Errorf("unsupported language %q", lang)
+		return "", fmt.Errorf("unsupported language %q; allowed: go, cpp, rust, python", lang)
 	}
 	return l, nil
 }

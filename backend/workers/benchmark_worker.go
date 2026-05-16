@@ -264,7 +264,15 @@ func (w *BenchmarkWorker) failRun(ctx context.Context, runID, errMsg string) err
 	_, _ = w.db.ExecContext(ctx,
 		`UPDATE benchmark_runs SET status = $1, error_msg = $2, ended_at = NOW() WHERE id = $3`,
 		models.BenchmarkFailed, errMsg, runID)
-	return fmt.Errorf(errMsg)
+	// Pull the submission ID from the run so we can flip it to failed too.
+	// Without this the submission stays stuck in 'building' forever.
+	var subID string
+	_ = w.db.QueryRowContext(ctx,
+		`SELECT submission_id FROM benchmark_runs WHERE id = $1`, runID).Scan(&subID)
+	if subID != "" {
+		_, _ = w.updateSubmissionStatus(ctx, subID, models.SubmissionFailed)
+	}
+	return fmt.Errorf("%s", errMsg)
 }
 
 func (w *BenchmarkWorker) completeRun(ctx context.Context, runID string, endedAt time.Time, durationMs int64) {

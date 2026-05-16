@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Rishi-rky06/distributed-benchmark-platform/config"
+	"github.com/Rishi-rky06/distributed-benchmark-platform/services"
 	"github.com/Rishi-rky06/distributed-benchmark-platform/utils"
 )
 
@@ -18,6 +19,7 @@ func NewRouter(
 	log *utils.Logger,
 	db *config.DB,
 	rdb *config.RedisClient,
+	queue *services.QueueService,
 ) http.Handler {
 	if cfg.IsProd() {
 		gin.SetMode(gin.ReleaseMode)
@@ -34,8 +36,8 @@ func NewRouter(
 	r.Use(bodyLimit(cfg.MaxUploadMB)) // prevent oversized payloads outside upload route
 
 	// ── Instantiate handlers ───────────────────────────────────────────────────
-	health     := NewHealthHandler(cfg, db, rdb)
-	submission := NewSubmissionHandler(cfg, log, db, rdb)
+	health      := NewHealthHandler(cfg, db, rdb)
+	submission  := NewSubmissionHandler(cfg, log, db, rdb, queue)
 	leaderboard := NewLeaderboardHandler(cfg, log, db, rdb)
 
 	// ── Readiness / liveness (no auth) ────────────────────────────────────────

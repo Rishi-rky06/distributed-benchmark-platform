@@ -32,5 +32,5 @@ type Submission struct {
 // CreateSubmissionRequest is the parsed body / form for a new submission.
 type CreateSubmissionRequest struct {
 	TeamName string `form:"team_name" binding:"required,min=2,max=64"`
-	Language string `form:"language"  binding:"required,oneof=go cpp rust"`
+	Language string `form:"language"  binding:"required,oneof=go cpp rust python"`
 }

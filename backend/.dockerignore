@@ -1,0 +1,22 @@
+# Runtime data — never bake into the image
+submissions/
+
+# Git metadata
+.git/
+.gitignore
+
+# Documentation
+*.md
+
+# Local env files — must never be in the image
+.env
+.env.*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Test binaries and coverage output
+*.test
+*.out
+coverage.html
