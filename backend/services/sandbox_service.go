@@ -7,15 +7,17 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	imagetypes "github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
-
+	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/Rishi-rky06/distributed-benchmark-platform/config"
 	"github.com/Rishi-rky06/distributed-benchmark-platform/utils"
 )
@@ -38,10 +40,11 @@ func (g *GVisorRuntime) ApplyHostConfig(hc *container.HostConfig) { hc.Runtime =
 
 // SandboxService manages contestant container lifecycle.
 type SandboxService struct {
-	cfg     *config.Config
-	log     *utils.Logger
-	docker  *client.Client
-	runtime ContainerRuntime
+	cfg           *config.Config
+	log           *utils.Logger
+	docker        *client.Client
+	runtime       ContainerRuntime
+	dockerNetwork string // Docker network to attach submission containers to
 }
 
 func NewSandboxService(cfg *config.Config, log *utils.Logger) (*SandboxService, error) {
@@ -60,8 +63,29 @@ func NewSandboxService(cfg *config.Config, log *utils.Logger) (*SandboxService, 
 		rt = &GVisorRuntime{}
 	}
 
-	log.Infow("sandbox service initialized", "runtime", rt.RuntimeName())
-	return &SandboxService{cfg: cfg, log: log, docker: cli, runtime: rt}, nil
+	// Auto-detect the Docker network this container is on so submission
+	// containers can be attached to the same network for direct connectivity.
+	dockerNetwork := detectOwnNetwork(ctx, cli)
+
+	log.Infow("sandbox service initialized", "runtime", rt.RuntimeName(), "network", dockerNetwork)
+	return &SandboxService{cfg: cfg, log: log, docker: cli, runtime: rt, dockerNetwork: dockerNetwork}, nil
+}
+
+// detectOwnNetwork returns the first Docker network the current container is
+// attached to by inspecting the container whose ID matches our hostname.
+func detectOwnNetwork(ctx context.Context, cli *client.Client) string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	info, err := cli.ContainerInspect(ctx, hostname)
+	if err != nil {
+		return ""
+	}
+	for netName := range info.NetworkSettings.Networks {
+		return netName
+	}
+	return ""
 }
 
 func (s *SandboxService) Close() {
@@ -112,7 +136,9 @@ func (s *SandboxService) BuildImage(ctx context.Context, subID, language, subDir
 		return "", fmt.Errorf("docker build: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	if err := jsonmessage.DisplayJSONMessagesStream(resp.Body, io.Discard, 0, false, nil); err != nil {
+		return "", fmt.Errorf("docker build stream: %w", err)
+	}
 
 	s.log.Infow("image built", "tag", tag, "submission_id", subID)
 	return tag, nil
@@ -124,20 +150,28 @@ func (s *SandboxService) LaunchContainer(ctx context.Context, imageTag, subID st
 	cpuNano, memBytes := s.parseLimits()
 
 	ccfg := &container.Config{
-		Image:        imageTag,
-		ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
-		Labels:       map[string]string{"bench.submission_id": subID, "bench.managed": "true"},
+		Image:  imageTag,
+		Labels: map[string]string{"bench.submission_id": subID, "bench.managed": "true"},
 	}
 	hcfg := &container.HostConfig{
-		PortBindings: nat.PortMap{"8080/tcp": []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: "0"}}},
-		Resources:    container.Resources{NanoCPUs: cpuNano, Memory: memBytes},
+		Resources:      container.Resources{NanoCPUs: cpuNano, Memory: memBytes},
 		ReadonlyRootfs: true,
-		Tmpfs:        map[string]string{"/tmp": "rw,noexec,nosuid,size=64m"},
-		SecurityOpt:  []string{"no-new-privileges"},
+		Tmpfs:          map[string]string{"/tmp": "rw,noexec,nosuid,size=64m"},
+		SecurityOpt:    []string{"no-new-privileges"},
 	}
 	s.runtime.ApplyHostConfig(hcfg)
 
-	resp, err := s.docker.ContainerCreate(ctx, ccfg, hcfg, nil, nil, name)
+	// Attach to the same Docker network as the backend for direct connectivity.
+	var netCfg *network.NetworkingConfig
+	if s.dockerNetwork != "" {
+		netCfg = &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				s.dockerNetwork: {},
+			},
+		}
+	}
+
+	resp, err := s.docker.ContainerCreate(ctx, ccfg, hcfg, netCfg, nil, name)
 	if err != nil {
 		return nil, fmt.Errorf("create: %w", err)
 	}
@@ -150,12 +184,21 @@ func (s *SandboxService) LaunchContainer(ctx context.Context, imageTag, subID st
 	if err != nil {
 		return nil, fmt.Errorf("inspect: %w", err)
 	}
-	port := 0
-	if binds, ok := inspect.NetworkSettings.Ports["8080/tcp"]; ok && len(binds) > 0 {
-		fmt.Sscanf(binds[0].HostPort, "%d", &port)
+
+	// Use the container's internal IP on our shared network.
+	host := ""
+	if s.dockerNetwork != "" {
+		if ep, ok := inspect.NetworkSettings.Networks[s.dockerNetwork]; ok {
+			host = ep.IPAddress
+		}
 	}
-	s.log.Infow("container launched", "id", resp.ID[:12], "port", port)
-	return &ContainerInfo{ContainerID: resp.ID, Host: "localhost", Port: port}, nil
+	// Fallback: use container name (DNS works on custom bridge networks).
+	if host == "" {
+		host = name
+	}
+
+	s.log.Infow("container launched", "id", resp.ID[:12], "host", host)
+	return &ContainerInfo{ContainerID: resp.ID, Host: host, Port: 8080}, nil
 }
 
 // WaitForHealthy polls the container endpoint.
@@ -203,9 +246,9 @@ func (s *SandboxService) GetContainerLogs(ctx context.Context, cid string, lines
 		return "", err
 	}
 	defer r.Close()
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	return buf.String(), nil
+	var stdout, stderr bytes.Buffer
+	_, _ = stdcopy.StdCopy(&stdout, &stderr, r)
+	return stdout.String() + stderr.String(), nil
 }
 
 func (s *SandboxService) parseLimits() (int64, int64) {
@@ -231,7 +274,7 @@ func dockerfileFor(lang string) string {
 		"go":   "FROM golang:1.22-alpine AS builder\nWORKDIR /build\nCOPY . .\nRUN go mod init submission 2>/dev/null || true\nRUN CGO_ENABLED=0 GOOS=linux go build -ldflags=\"-s -w\" -o /app/server .\nFROM alpine:3.19\nRUN apk --no-cache add ca-certificates\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
 		"cpp":  "FROM gcc:13 AS builder\nWORKDIR /build\nCOPY . .\nRUN g++ -O2 -std=c++20 -o /app/server *.cpp -lpthread\nFROM debian:bookworm-slim\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
 		"rust": "FROM rust:1.77-slim AS builder\nWORKDIR /build\nCOPY . .\nRUN cargo init --name submission 2>/dev/null || true\nRUN cargo build --release\nRUN cp target/release/submission /app/server\nFROM debian:bookworm-slim\nCOPY --from=builder /app/server /app/server\nEXPOSE 8080\nENTRYPOINT [\"/app/server\"]\n",
-		"python": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true\nEXPOSE 8080\nCMD [\"python\", \"src/main.py\"]\n",
+		"python": "FROM python:3.12-slim\nENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true\nEXPOSE 8080\nCMD [\"python\", \"main.py\"]\n",
 	}
 	return m[strings.ToLower(lang)]
 }

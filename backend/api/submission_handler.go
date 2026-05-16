@@ -267,10 +267,8 @@ func (h *SubmissionHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if status == models.SubmissionRunning || status == models.SubmissionBuilding {
-		utils.Conflict(c, fmt.Sprintf(
-			"cannot delete submission in %q state; wait for it to complete or fail", status,
-		))
+	if status == models.SubmissionRunning {
+		utils.Conflict(c, "cannot delete submission while benchmark is actively running")
 		return
 	}
 

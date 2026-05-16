@@ -95,9 +95,12 @@ func (w *BenchmarkWorker) processRun(ctx context.Context, runID string) error {
 		return err
 	}
 
-	// 3. Build Docker image
+	// 3. Build Docker image — enforce a hard timeout so a hanging pip/apt
+	// step cannot block the worker indefinitely in "building" status.
 	submissionDir := filepath.Join(w.cfg.SubmissionsDir, sub.ID)
-	imageTag, err := w.sandbox.BuildImage(ctx, sub.ID, sub.Language, submissionDir)
+	buildCtx, buildCancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer buildCancel()
+	imageTag, err := w.sandbox.BuildImage(buildCtx, sub.ID, sub.Language, submissionDir)
 	if err != nil {
 		return w.failRun(ctx, runID, "build failed: "+err.Error())
 	}
@@ -270,7 +273,7 @@ func (w *BenchmarkWorker) failRun(ctx context.Context, runID, errMsg string) err
 	_ = w.db.QueryRowContext(ctx,
 		`SELECT submission_id FROM benchmark_runs WHERE id = $1`, runID).Scan(&subID)
 	if subID != "" {
-		_, _ = w.updateSubmissionStatus(ctx, subID, models.SubmissionFailed)
+		_ = w.updateSubmissionStatus(ctx, subID, models.SubmissionFailed)
 	}
 	return fmt.Errorf("%s", errMsg)
 }

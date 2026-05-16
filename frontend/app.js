@@ -89,6 +89,10 @@ async function loadDashboard() {
                   ${['pending','ready','completed'].includes(s.status) ? '' : 'disabled'}>
             Run
           </button>
+          <button class="btn-sm danger" onclick="deleteSubmission('${s.id}', '${esc(s.team_name)}')"
+                  ${s.status === 'running' ? 'disabled' : ''}>
+            Delete
+          </button>
         </td>
       </tr>
     `).join('');
@@ -105,6 +109,17 @@ async function triggerRun(subId) {
     loadDashboard();
   } catch (err) {
     alert('Failed to trigger run: ' + err.message);
+  }
+}
+
+// ── Delete Submission ───────────────────────────────────────────
+async function deleteSubmission(subId, teamName) {
+  if (!confirm(`Delete submission for "${teamName}"? This cannot be undone.`)) return;
+  try {
+    await api(`/api/v1/submissions/${subId}`, { method: 'DELETE' });
+    loadDashboard();
+  } catch (err) {
+    alert('Failed to delete: ' + err.message);
   }
 }
 

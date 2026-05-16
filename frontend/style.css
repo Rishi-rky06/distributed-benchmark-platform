@@ -167,6 +167,9 @@ button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-sm:hover { color: var(--text); border-color: var(--text-muted); }
 .btn-sm.primary { border-color: var(--accent); color: var(--accent); }
 .btn-sm.primary:hover { background: rgba(59,130,246,0.1); }
+.btn-sm.danger { border-color: #ef4444; color: #ef4444; margin-left: 0.3rem; }
+.btn-sm.danger:hover { background: rgba(239,68,68,0.1); }
+.btn-sm.danger:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Result Box ──────────────────────────────────────────────── */
 .result-box {
